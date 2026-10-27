@@ -12,7 +12,7 @@ run = "uv run pytest ${usage_last_failed:+--lf}${usage_lf:+--lf}"
 
 [tasks.build-docker]
 description = "Build the docker image"
-run = "docker build -f docker/Dockerfile -t bieterrunde ."
+run = "docker build -f docker/Dockerfile -t owm-portal ."
 
 [tasks.djshell]
 description = "Start a django python shell"
@@ -28,4 +28,4 @@ python = "3.12"
 uv = "0.11.6"
 
 [env]
-DJANGO_SETTINGS_MODULE = "bieterrunde.settings_dev"
+DJANGO_SETTINGS_MODULE = "owm_portal.settings_dev"

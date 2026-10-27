@@ -1,0 +1,11 @@
+{% extends "core/base.html" %}
+{% block content %}
+    <h1>OWM Vereinsportal</h1>
+    <p>Werkzeuge für vereinsrelevante Aufgaben der Offenen Werkstatt Mainz e.V.</p>
+    {% for module in modules %}
+        <article>
+            <header><a href="{{ module.url }}"><i class="bx {{ module.icon }}"></i> {{ module.name }}</a></header>
+            {{ module.description }}
+        </article>
+    {% endfor %}
+{% endblock %}

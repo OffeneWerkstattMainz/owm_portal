@@ -9,7 +9,7 @@ ALLOWED_HOSTS = os.environ.get("ALLOWED_HOSTS", "").split(",")
 
 DATABASES["default"] = {
     "ENGINE": "django.db.backends.postgresql",
-    "NAME": "bieterrunde",
+    "NAME": os.environ.get("DB_NAME", "owm_portal"),
     "USER": "postgres",
     "PASSWORD": "",
     "HOST": os.environ.get("DB_HOST", "localhost"),

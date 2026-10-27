@@ -4,7 +4,12 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project
 
-Bieterrunde is a Django 5 app for running solidarity-based membership fee bidding rounds (Bieterrunden). UI and data are in German. Key dependencies: django-htmx, django-guest-user, django-qr-code, django-click.
+OWM Vereinsportal is a Django 5 backend for club-related tasks of Offene Werkstatt Mainz e.V. Each task is its own Django app:
+
+- `core` — start page (`/`), shared base template (`core/base.html`), static assets, form templates, context processors
+- `voting` — Bieterrunde: solidarity-based membership fee bidding rounds, mounted at `/bieterrunde/` (legacy root URLs redirect there)
+
+The Django project package is `owm_portal/`. UI and data are in German. Key dependencies: django-htmx, django-guest-user, django-qr-code, django-click.
 
 ## Commands
 
@@ -19,17 +24,20 @@ prek run                       # run all pre-commit checks (ruff lint+format, tr
 ## Code style
 
 - Formatter: ruff format, line-length **99** (configured in pyproject.toml)
-- Tests use `@pytest.mark.django_db` and live in `voting/tests.py`
+- Tests use `@pytest.mark.django_db` and live in `<app>/tests.py`
 - Run a single test: `uv run pytest -k "test_name"`
 
 ## Settings
 
-- Dev: `bieterrunde/settings.py` — SQLite, DEBUG=True, ALLOWED_HOSTS=["*"]
-- Prod: `bieterrunde/settings_prod.py` — PostgreSQL, WhiteNoise, secure cookies
-- Env vars for prod: `SECRET_KEY_FILE`, `ALLOWED_HOSTS`, `DB_HOST`, `DB_PORT`, `STATIC_ROOT`
+- Dev: `owm_portal/settings.py` — SQLite, DEBUG=True, ALLOWED_HOSTS=["*"]
+- Prod: `owm_portal/settings_prod.py` — PostgreSQL, WhiteNoise, secure cookies
+- Env vars for prod: `SECRET_KEY_FILE`, `ALLOWED_HOSTS`, `DB_HOST`, `DB_PORT`, `DB_NAME` (default `owm_portal`), `STATIC_ROOT`
 - Optional: `CREATE_VOTING_ACCESS_CODE`, `WEBLING_API_KEY`
 
 ## Architecture notes
+
+- New apps: extend `core/base.html`, mount under their own URL prefix in `owm_portal/urls.py`, and add an entry to the module list in `core/views.py`
+- Never rename the `voting` app label: tables and migrations depend on it
 
 - Views are HTMX-aware: check `request.htmx` before returning full vs. partial templates
 - Guest users (django-guest-user) can vote without registering; convertible to real accounts

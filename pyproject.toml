@@ -1,7 +1,7 @@
 [project]
-name = "bieterrunde"
+name = "owm-portal"
 version = "0.9.1"
-description = ""
+description = "Backend für vereinsrelevante Aufgaben der Offenen Werkstatt Mainz e.V."
 authors = [{ name = "Ulrich Petri", email = "ulo@ulo.pe" }]
 requires-python = ">=3.12,<4"
 readme = "README.md"
@@ -50,7 +50,7 @@ build-backend = "uv_build"
 line-length = 99
 
 [tool.pytest.ini_options]
-DJANGO_SETTINGS_MODULE = "bieterrunde.settings"
+DJANGO_SETTINGS_MODULE = "owm_portal.settings"
 python_files = ["tests.py", "test_*.py", "*_tests.py"]
 
 [tool.ruff]
