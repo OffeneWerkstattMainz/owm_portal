@@ -1,0 +1,123 @@
+{% load static %}<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, user-scalable=no, initial-scale=1.0, maximum-scale=1.0, minimum-scale=1.0">
+    <meta name="color-scheme" content="light dark" />
+    <link rel="stylesheet" href="{% static "pico.pumpkin.min.css" %}" />
+    <link rel="stylesheet" href="{% static "pico.colors.min.css" %}" />
+    <link rel="stylesheet" href="{% static "boxicons.min.css" %}">
+    <style>
+        @media (prefers-color-scheme: dark) {
+            .only-light {
+                display: none;
+            }
+            .only-dark {
+                display: block;
+            }
+
+        }
+        @media (prefers-color-scheme: light) {
+            .only-light {
+                display: block;
+            }
+            .only-dark {
+                display: none;
+            }
+        }
+        @media (min-width:1024px) {
+            dialog article {
+                max-width: 950px;
+            }
+        }
+        :where(input,select,textarea,fieldset,.grid)[aria-invalid=true]+small {
+            /* Fix error message disappearing under input field */
+            padding-top: 1rem;
+        }
+        .grid-2-1 {
+            grid-template-columns: 2fr 1fr;
+        }
+        .button-wide {
+            width: 100%;
+            margin-bottom: var(--pico-spacing);
+        }
+        .currency {
+            text-align: right;
+        }
+        ul.errorlist li {
+            color: var(--pico-del-color);
+            font-size: smaller;
+        }
+        main footer {
+            text-align: right;
+        }
+        main footer small {
+            color: var(--pico-muted-color);
+            font-size: smaller;
+        }
+        main footer a {
+            text-decoration: none;
+        }
+        #messages article header {
+            position: relative;
+        }
+        #messages article header span {
+            position: absolute;
+            display: block;
+            bottom: 0;
+            right: 0;
+            height: 5px;
+            width: 20vb;
+            max-width: 100%;
+            background-color: var(--pico-color-amber-150);
+            animation: dismiss 10s forwards linear;
+        }
+        @keyframes dismiss {
+            from {
+                width: 20vb;
+            } to {
+                width: 0;
+            }
+        }
+        a.vote-qr svg {
+            width: 100%;
+            height: auto;
+        }
+        article.vote {
+            display: inline-block;
+            min-width: 8em;
+
+        }
+
+    </style>
+    <script src="{% static 'htmx.min.js' %}" defer></script>
+    <script src="{% static 'htmx-remove-me.js' %}" defer></script>
+    <script>
+        document.addEventListener('keyup', ev => {if (ev.key == "Escape") {htmx.find('dialog').close();}})
+        {% if debug %}
+        window.onload = function () {
+            htmx.logger = function (elt, event, data) {
+                if (console) {
+                    console.log(event, elt, data);
+                }
+            };
+            htmx.logAll();
+        };
+        {% endif %}
+    </script>
+    <title>{% block page-title %}{% endblock %}{% block site-title %}OWM Vereinsportal{% endblock %}</title>
+    {% block head %}
+
+    {% endblock %}
+</head>
+<body>
+<main class="container">
+    {% block content %}
+    {% endblock %}
+    <footer>
+        <hr>
+        <small>Version {{ PROJECT_VERSION }} | Quelltext auf <a href="https://github.com/OffeneWerkstattMainz/owm-portal" class="bx bxl-github">GitHub</a></small>
+    </footer>
+</main>
+</body>
+</html>
