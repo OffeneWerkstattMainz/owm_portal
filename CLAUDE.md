@@ -8,7 +8,7 @@ OWM Vereinsportal is a Django 5 backend for club-related tasks of Offene Werksta
 
 - `core` — start page (`/`), shared base template (`core/base.html`), static assets, form templates, context processors
 - `voting` — Bieterrunde: solidarity-based membership fee bidding rounds, mounted at `/bieterrunde/` (legacy root URLs redirect there)
-- `signup` — double opt-in for members created by the Webling WordPress plugin form, mounted at `/anmeldung/`; `signup_process --loop` polls Webling (no local models, state lives in Webling fields)
+- `signup` — double opt-in for members created by the Webling WordPress plugin form, mounted at `/anmeldung/`; the task `process_signups` polls Webling, scheduled by RQ cron in `owm_portal/cron.py` (no local models, state lives in Webling fields)
 
 The Django project package is `owm_portal/`. UI and data are in German. Key dependencies: django-htmx, django-guest-user, django-qr-code, django-click.
 

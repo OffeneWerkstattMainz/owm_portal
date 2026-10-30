@@ -197,5 +197,7 @@ SIGNUP_NOTIFY_EMAILS = [
     for email in os.environ.get("SIGNUP_NOTIFY_EMAILS", "").split(",")
     if email.strip()
 ]
+# Sekunden zwischen zwei Abfragen der Gruppe in Webling
+SIGNUP_INTERVAL = int(os.environ.get("SIGNUP_INTERVAL", 120))
 SIGNUP_REMINDER_DAYS = int(os.environ.get("SIGNUP_REMINDER_DAYS", 3))
 SIGNUP_EXPIRY_DAYS = int(os.environ.get("SIGNUP_EXPIRY_DAYS", 14))

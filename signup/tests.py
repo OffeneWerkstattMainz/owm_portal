@@ -6,7 +6,7 @@ import pytest
 from django.core import signing
 from django.urls import reverse
 
-from signup import services, views
+from signup import services, tasks, views
 from signup.services import (
     PROP_CONFIRMED,
     PROP_REMINDED,
@@ -248,3 +248,11 @@ def test_confirm_expired_token(client, api, monkeypatch):
 
     assert response.status_code == 410
     assert response.context["state"] == "expired"
+
+
+def test_process_signups_task(monkeypatch, mailoutbox):
+    api = FakeWeblingAPI({1: make_member(1)})
+    monkeypatch.setattr(tasks, "WeblingAPI", lambda api_key: api)
+
+    assert tasks.process_signups.call()["requested"] == 1
+    assert len(mailoutbox) == 1

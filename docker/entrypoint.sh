@@ -15,8 +15,8 @@ case "$MODE" in
   worker)
     uv run --group prod --no-group dev manage.py rqworker --job-class django_tasks_rq.Job
     ;;
-  manage)
-    uv run --group prod --no-group dev python manage.py "$@"
+  cron)
+    uv run --group prod --no-group dev manage.py rqcron owm_portal.cron
     ;;
   *)
     echo "Unknown mode: $MODE"
