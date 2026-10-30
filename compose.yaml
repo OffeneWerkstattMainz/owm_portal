@@ -10,6 +10,15 @@ services:
       STATIC_ROOT: "/data/static"
       CREATE_VOTING_ACCESS_CODE:
       WEB_CONCURRENCY:
+      WEBLING_API_KEY:
+      SIGNUP_PENDING_GROUP_ID:
+      SIGNUP_CONFIRMED_GROUP_ID:
+      SIGNUP_NOTIFY_EMAILS:
+      SMTP_HOST:
+      SMTP_PORT:
+      SMTP_USER:
+      SMTP_PASSWORD:
+      EMAIL_FROM:
     volumes:
       - ${DATA_DIR:-./data}/web:/data
       - web-static:/data/static
@@ -37,6 +46,32 @@ services:
       - valkey
     command:
       - worker
+
+  signup:
+    image: ${OWM_PORTAL_IMAGE:-ghcr.io/offenewerkstattmainz/owm-portal:0.10.0}
+    restart: unless-stopped
+    environment:
+      DB_HOST: db
+      SECRET_KEY_FILE: "/data/secret_key.txt"
+      WEBLING_API_KEY:
+      SIGNUP_PENDING_GROUP_ID:
+      SIGNUP_CONFIRMED_GROUP_ID:
+      SIGNUP_BASE_URL: "https://${DOMAIN}"
+      SIGNUP_NOTIFY_EMAILS:
+      SMTP_HOST:
+      SMTP_PORT:
+      SMTP_USER:
+      SMTP_PASSWORD:
+      EMAIL_FROM:
+    volumes:
+      - ${DATA_DIR:-./data}/web:/data
+    depends_on:
+      - db
+      - web
+    command:
+      - manage
+      - signup_process
+      - --loop
 
   db:
     image: postgres:16
