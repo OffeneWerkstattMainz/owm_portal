@@ -150,9 +150,7 @@ def test_process_pending_reminds_once(mailoutbox):
 def test_process_pending_waits_before_reminder(mailoutbox):
     api = FakeWeblingAPI({1: make_member(1, **{PROP_REQUESTED: days_ago(2)})})
 
-    assert process_pending(api, today=TODAY) == dict(
-        requested=0, reminded=0, deleted=0, skipped=0
-    )
+    assert process_pending(api, today=TODAY) == dict(requested=0, reminded=0, deleted=0, skipped=0)
     assert mailoutbox == []
 
 
