@@ -13,6 +13,4 @@ from signup.tasks import process_signups
 
 TASK_META = {"backend_name": "default"}
 
-cron.register(
-    process_signups.func, "default", interval=settings.SIGNUP_INTERVAL, meta=TASK_META
-)
+cron.register(process_signups.func, "default", interval=settings.SIGNUP_INTERVAL, meta=TASK_META)

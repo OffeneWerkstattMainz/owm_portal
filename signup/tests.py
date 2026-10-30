@@ -5,20 +5,16 @@ from copy import deepcopy
 import pytest
 from django.core import signing
 from django.urls import reverse
+from django.utils import timezone
 
 from signup import services, tasks, views
-from signup.services import (
-    PROP_CONFIRMED,
-    PROP_REMINDED,
-    PROP_REQUESTED,
-    make_token,
-    process_pending,
-)
+from signup.models import PendingSignup
+from signup.services import make_token, process_pending
 
 PENDING = 100
 CONFIRMED = 200
 OTHER = 300
-TODAY = datetime.date(2026, 11, 2)
+NOW = timezone.make_aware(datetime.datetime(2026, 11, 2, 12, 0))
 
 
 class FakeWeblingAPI:
@@ -41,8 +37,8 @@ class FakeWeblingAPI:
     def fetch_member(self, member_id):
         return deepcopy(self.members.get(member_id))
 
-    def update_member(self, member_id, properties, parents=None):
-        self.members[member_id]["properties"].update(properties)
+    def update_member(self, member_id, properties=None, parents=None):
+        self.members[member_id]["properties"].update(properties or {})
         if parents:
             self.members[member_id]["parents"] = parents
 
@@ -50,11 +46,18 @@ class FakeWeblingAPI:
         del self.members[member_id]
 
 
-def make_member(member_id, email="ada@example.org", parents=(PENDING,), **properties):
+def created(days=0, hours=0):
+    return timezone.localtime(NOW - datetime.timedelta(days=days, hours=hours)).strftime(
+        "%Y-%m-%d %H:%M:%S"
+    )
+
+
+def make_member(member_id, email="ada@example.org", parents=(PENDING,), created_at=None):
     return {
         "id": member_id,
+        "meta": {"created": created_at or created(hours=1), "lastmodified": None},
         "parents": list(parents),
-        "properties": {"Vorname": "Ada", "Name": "Lovelace", "E-Mail": email, **properties},
+        "properties": {"Vorname": "Ada", "Name": "Lovelace", "E-Mail": email},
     }
 
 
@@ -76,33 +79,42 @@ def api(monkeypatch):
     return api
 
 
-def days_ago(days):
-    return (TODAY - datetime.timedelta(days=days)).isoformat()
+@pytest.mark.django_db
+def test_process_pending_requests_confirmation_once(mailoutbox):
+    api = FakeWeblingAPI({1: make_member(1, created_at="2026-11-01 18:30:00")})
 
+    assert process_pending(api, now=NOW)["requested"] == 1
+    assert process_pending(api, now=NOW)["requested"] == 0
 
-def test_process_pending_requests_confirmation(mailoutbox):
-    api = FakeWeblingAPI({1: make_member(1)})
-
-    stats = process_pending(api, today=TODAY)
-
-    assert stats["requested"] == 1
-    assert api.members[1]["properties"][PROP_REQUESTED] == TODAY.isoformat()
     [mail] = mailoutbox
     assert mail.to == ["ada@example.org"]
     assert "Hallo Ada" in mail.body
-    assert "16.11.2026" in mail.body
+    assert "15.11.2026" in mail.body
     assert re.search(r"https://portal\.example\.org/anmeldung/bestaetigen/\S+/", mail.body)
+    assert PendingSignup.objects.get(member_id=1).requested_at == NOW
 
 
+@pytest.mark.django_db
 def test_process_pending_ignores_other_groups(mailoutbox):
     api = FakeWeblingAPI({1: make_member(1, parents=[OTHER])})
 
-    process_pending(api, today=TODAY)
+    process_pending(api, now=NOW)
 
     assert mailoutbox == []
-    assert PROP_REQUESTED not in api.members[1]["properties"]
+    assert not PendingSignup.objects.exists()
 
 
+@pytest.mark.django_db
+def test_process_pending_skips_member_without_created(mailoutbox):
+    member = make_member(1)
+    member["meta"]["created"] = None
+    api = FakeWeblingAPI({1: member})
+
+    assert process_pending(api, now=NOW)["requested"] == 0
+    assert mailoutbox == []
+
+
+@pytest.mark.django_db
 @pytest.mark.parametrize(
     "members",
     [
@@ -116,18 +128,17 @@ def test_process_pending_ignores_other_groups(mailoutbox):
 def test_process_pending_skips_without_mail(mailoutbox, members):
     api = FakeWeblingAPI(members)
 
-    stats = process_pending(api, today=TODAY)
-
-    assert stats == dict(requested=0, reminded=0, deleted=0, skipped=1)
+    assert process_pending(api, now=NOW) == dict(requested=0, reminded=0, deleted=0, skipped=1)
+    # Only reported once
+    assert process_pending(api, now=NOW)["skipped"] == 0
     assert mailoutbox == []
-    # Still marked so it expires
-    assert api.members[1]["properties"][PROP_REQUESTED] == TODAY.isoformat()
 
 
+@pytest.mark.django_db
 def test_process_pending_mails_duplicate_address_once(mailoutbox):
     api = FakeWeblingAPI({1: make_member(1), 2: make_member(2, email="ADA@example.org ")})
 
-    stats = process_pending(api, today=TODAY)
+    stats = process_pending(api, now=NOW)
 
     assert stats["requested"] == 1
     assert stats["skipped"] == 1
@@ -135,41 +146,62 @@ def test_process_pending_mails_duplicate_address_once(mailoutbox):
     assert make_token(1, "ada@example.org") in mail.body
 
 
+@pytest.mark.django_db
 def test_process_pending_reminds_once(mailoutbox):
-    api = FakeWeblingAPI({1: make_member(1, **{PROP_REQUESTED: days_ago(3)})})
+    api = FakeWeblingAPI({1: make_member(1, created_at=created(days=2, hours=23))})
+    process_pending(api, now=NOW)
+    assert process_pending(api, now=NOW)["reminded"] == 0
 
-    assert process_pending(api, today=TODAY)["reminded"] == 1
-    assert process_pending(api, today=TODAY)["reminded"] == 0
+    later = NOW + datetime.timedelta(hours=2)
+    assert process_pending(api, now=later)["reminded"] == 1
+    assert process_pending(api, now=later)["reminded"] == 0
 
-    [mail] = mailoutbox
-    assert mail.subject.startswith("Erinnerung")
-    assert "13.11.2026" in mail.body
-    assert api.members[1]["properties"][PROP_REMINDED] == TODAY.isoformat()
+    request, reminder = mailoutbox
+    assert reminder.subject.startswith("Erinnerung")
+    assert "13.11.2026" in reminder.body
+    assert PendingSignup.objects.get(member_id=1).reminded_at == later
 
 
-def test_process_pending_waits_before_reminder(mailoutbox):
-    api = FakeWeblingAPI({1: make_member(1, **{PROP_REQUESTED: days_ago(2)})})
+@pytest.mark.django_db
+def test_process_pending_no_reminder_for_skipped(mailoutbox):
+    api = FakeWeblingAPI({1: make_member(1, email="kaputt", created_at=created(days=1))})
+    process_pending(api, now=NOW)
 
-    assert process_pending(api, today=TODAY) == dict(requested=0, reminded=0, deleted=0, skipped=0)
+    assert process_pending(api, now=NOW + datetime.timedelta(days=3))["reminded"] == 0
     assert mailoutbox == []
 
 
+@pytest.mark.django_db
 def test_process_pending_deletes_expired(mailoutbox):
     api = FakeWeblingAPI(
         {
-            1: make_member(1, **{PROP_REQUESTED: days_ago(14), PROP_REMINDED: days_ago(11)}),
-            2: make_member(2, email="bob@example.org", **{PROP_REQUESTED: days_ago(13)}),
+            1: make_member(1, created_at=created(days=14)),
+            2: make_member(2, email="bob@example.org", created_at=created(days=13, hours=23)),
         }
     )
+    PendingSignup.objects.create(member_id=1, requested_at=NOW, reminded_at=NOW)
+    PendingSignup.objects.create(member_id=2, requested_at=NOW, reminded_at=NOW)
 
-    stats = process_pending(api, today=TODAY)
+    stats = process_pending(api, now=NOW)
 
     assert stats["deleted"] == 1
     assert list(api.members) == [2]
+    assert list(PendingSignup.objects.values_list("member_id", flat=True)) == [2]
 
 
+@pytest.mark.django_db
+def test_process_pending_forgets_confirmed(mailoutbox):
+    api = FakeWeblingAPI({1: make_member(1, parents=[CONFIRMED])})
+    PendingSignup.objects.create(member_id=1, requested_at=NOW)
+
+    process_pending(api, now=NOW)
+
+    assert not PendingSignup.objects.exists()
+
+
+@pytest.mark.django_db
 def test_confirm_flow(client, api, mailoutbox):
-    api.members[1] = make_member(1, parents=[PENDING, OTHER], **{PROP_REQUESTED: days_ago(1)})
+    api.members[1] = make_member(1, parents=[PENDING, OTHER])
     url = reverse("signup:confirm", args=[make_token(1, "ada@example.org")])
 
     response = client.get(url)
@@ -182,7 +214,6 @@ def test_confirm_flow(client, api, mailoutbox):
     assert response.status_code == 200
     assert response.context["state"] == "done"
     assert api.members[1]["parents"] == [OTHER, CONFIRMED]
-    assert api.members[1]["properties"][PROP_CONFIRMED]
     [mail] = mailoutbox
     assert mail.to == ["vorstand@example.org"]
     assert "Ada Lovelace" in mail.subject
@@ -195,6 +226,7 @@ def test_confirm_flow(client, api, mailoutbox):
     assert len(mailoutbox) == 1
 
 
+@pytest.mark.django_db
 def test_confirm_without_notify_emails(client, api, mailoutbox, settings):
     settings.SIGNUP_NOTIFY_EMAILS = []
     api.members[1] = make_member(1)
@@ -205,26 +237,28 @@ def test_confirm_without_notify_emails(client, api, mailoutbox, settings):
     assert mailoutbox == []
 
 
+@pytest.mark.django_db
 @pytest.mark.parametrize(
-    "member, email, status",
+    "member, email",
     [
-        pytest.param(None, "ada@example.org", 410, id="deleted"),
-        pytest.param(make_member(1), "eve@example.org", 410, id="email-changed"),
-        pytest.param(make_member(1, parents=[OTHER]), "ada@example.org", 410, id="moved"),
+        pytest.param(None, "ada@example.org", id="deleted"),
+        pytest.param(make_member(1), "eve@example.org", id="email-changed"),
+        pytest.param(make_member(1, parents=[OTHER]), "ada@example.org", id="moved"),
     ],
 )
-def test_confirm_rejects(client, api, member, email, status):
+def test_confirm_rejects(client, api, member, email):
     if member:
         api.members[1] = member
 
     response = client.post(reverse("signup:confirm", args=[make_token(1, email)]))
 
-    assert response.status_code == status
+    assert response.status_code == 410
     assert response.context["state"] == "expired"
     if member:
         assert CONFIRMED not in api.members[1]["parents"]
 
 
+@pytest.mark.django_db
 def test_confirm_invalid_token(client, api):
     api.members[1] = make_member(1)
     token = make_token(1, "ada@example.org")
@@ -236,6 +270,7 @@ def test_confirm_invalid_token(client, api):
     assert CONFIRMED not in api.members[1]["parents"]
 
 
+@pytest.mark.django_db
 def test_confirm_expired_token(client, api, monkeypatch):
     api.members[1] = make_member(1)
     token = make_token(1, "ada@example.org")
@@ -250,6 +285,7 @@ def test_confirm_expired_token(client, api, monkeypatch):
     assert response.context["state"] == "expired"
 
 
+@pytest.mark.django_db
 def test_process_signups_task(monkeypatch, mailoutbox):
     api = FakeWeblingAPI({1: make_member(1)})
     monkeypatch.setattr(tasks, "WeblingAPI", lambda api_key: api)

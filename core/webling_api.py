@@ -74,12 +74,15 @@ class WeblingAPI:
         return {"id": member_id, **response.json()}
 
     def update_member(
-        self, member_id: int, properties: dict, parents: list[int] | None = None
+        self, member_id: int, properties: dict | None = None, parents: list[int] | None = None
     ) -> None:
         response = self.client.put(
             f"{API_BASE}/member/{member_id}",
             headers={"apikey": self.api_key},
-            json={"properties": properties, **({"parents": parents} if parents else {})},
+            json={
+                **({"properties": properties} if properties else {}),
+                **({"parents": parents} if parents else {}),
+            },
         )
         response.raise_for_status()
 

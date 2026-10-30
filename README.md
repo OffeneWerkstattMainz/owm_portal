@@ -31,9 +31,11 @@ Double-Opt-In. Die App `signup` ergänzt das:
 4. Unbestätigte Einträge bekommen nach `SIGNUP_REMINDER_DAYS` (3) Tagen eine Erinnerung und werden
    nach `SIGNUP_EXPIRY_DAYS` (14) Tagen in Webling gelöscht.
 
-Der Zustand steht nur in Webling. Dort müssen diese Mitgliederfelder (Typ Datum) existieren:
-`DOI angefragt am`, `DOI Erinnerung am`, `DOI bestätigt am`. Der `WEBLING_API_KEY` braucht
-Schreibrecht auf beide Gruppen.
+Ob eine Anmeldung bestätigt ist, ergibt sich aus der Gruppe. Die Fristen zählen ab dem
+Anlagezeitpunkt des Mitglieds (`meta.created` der Webling-API), zusätzliche Webling-Felder sind
+nicht nötig. Das Portal merkt sich nur, welche Mails schon verschickt wurden (Model
+`PendingSignup`, ohne personenbezogene Daten). Der `WEBLING_API_KEY` braucht Schreibrecht auf
+beide Gruppen.
 
 | Variable                    | Bedeutung                                                         |
 |-----------------------------|-------------------------------------------------------------------|

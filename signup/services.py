@@ -3,11 +3,12 @@ Double-Opt-In für Mitgliedsanmeldungen über das Webling-WordPress-Plugin.
 
 Das Plugin legt neue Mitglieder direkt in der Webling-Gruppe ``SIGNUP_PENDING_GROUP_ID`` an.
 ``process_pending()`` verschickt für diese Einträge Bestätigungslinks, erinnert und löscht
-unbestätigte Einträge. Der Zustand steht ausschließlich in Webling-Feldern, das Portal speichert
-nichts.
+unbestätigte Einträge. Ob eine Anmeldung bestätigt ist, ergibt sich allein aus der Gruppe; die
+Fristen zählen ab dem Anlagezeitpunkt in den Webling-Metadaten. Das Portal merkt sich nur, welche
+Mails schon verschickt wurden (``PendingSignup``).
 """
 
-from datetime import date, timedelta
+from datetime import datetime, timedelta
 from logging import getLogger
 
 from django.conf import settings
@@ -20,15 +21,13 @@ from django.urls import reverse
 from django.utils import timezone
 
 from core.webling_api import WeblingAPI
+from signup.models import PendingSignup
 
 log = getLogger(__name__)
 
 PROP_EMAIL = "E-Mail"
 PROP_FIRSTNAME = "Vorname"
 PROP_LASTNAME = "Name"
-PROP_REQUESTED = "DOI angefragt am"
-PROP_REMINDED = "DOI Erinnerung am"
-PROP_CONFIRMED = "DOI bestätigt am"
 
 TOKEN_SALT = "signup.confirm"
 
@@ -57,6 +56,14 @@ def is_valid_email(email: str) -> bool:
     return True
 
 
+def member_created(member: dict) -> datetime | None:
+    """When the member was created in Webling (``meta.created``, local time)."""
+    created = (member.get("meta") or {}).get("created")
+    if not created:
+        return None
+    return timezone.make_aware(datetime.fromisoformat(created))
+
+
 def make_token(member_id: int, email: str) -> str:
     return signing.dumps({"m": member_id, "e": email}, salt=TOKEN_SALT)
 
@@ -76,11 +83,11 @@ def confirm_url(member: dict) -> str:
     return settings.SIGNUP_BASE_URL.rstrip("/") + reverse("signup:confirm", args=[token])
 
 
-def send_confirmation_request(member: dict, requested_on: date, reminder: bool = False) -> None:
+def send_confirmation_request(member: dict, created: datetime, reminder: bool = False) -> None:
     context = dict(
         firstname=(member["properties"].get(PROP_FIRSTNAME) or "").strip(),
         url=confirm_url(member),
-        delete_on=requested_on + timedelta(days=settings.SIGNUP_EXPIRY_DAYS),
+        delete_on=created + timedelta(days=settings.SIGNUP_EXPIRY_DAYS),
         reminder=reminder,
     )
     subject = "Bitte bestätige deine Anmeldung bei der Offenen Werkstatt Mainz"
@@ -119,30 +126,28 @@ def notify_board(member: dict) -> None:
 
 def confirm_member(api: WeblingAPI, member: dict) -> None:
     parents = [group for group in member.get("parents", []) if group != pending_group_id()]
-    api.update_member(
-        member["id"],
-        {PROP_CONFIRMED: timezone.localdate().isoformat()},
-        parents=[*parents, confirmed_group_id()],
-    )
+    api.update_member(member["id"], parents=[*parents, confirmed_group_id()])
     log.info(f"Anmeldung {member['id']} bestätigt")
     notify_board(member)
 
 
-def process_pending(api: WeblingAPI, today: date | None = None) -> dict[str, int]:
+def process_pending(api: WeblingAPI, now: datetime | None = None) -> dict[str, int]:
     """
-    Handle all members in the pending group:
+    Handle all members in the pending group, counting from their creation in Webling:
 
-    - new entries get a confirmation request (``PROP_REQUESTED`` is set)
-    - after ``SIGNUP_REMINDER_DAYS`` they get one reminder (``PROP_REMINDED`` is set)
+    - new entries get a confirmation request right away
+    - after ``SIGNUP_REMINDER_DAYS`` they get one reminder
     - after ``SIGNUP_EXPIRY_DAYS`` they are deleted from Webling
 
     Per e-mail address only the oldest pending entry gets mails, newer duplicates and entries for
     addresses that are already confirmed silently expire.
     """
-    today = today or timezone.localdate()
+    now = now or timezone.now()
     stats = dict(requested=0, reminded=0, deleted=0, skipped=0)
 
     pending = api.fetch_members_by_group_id(pending_group_id())
+    # Forget entries that were confirmed, deleted or moved by hand
+    PendingSignup.objects.exclude(member_id__in=pending).delete()
     confirmed_emails = {
         member_email(member)
         for member in api.fetch_members_by_group_id(confirmed_group_id()).values()
@@ -153,35 +158,44 @@ def process_pending(api: WeblingAPI, today: date | None = None) -> dict[str, int
 
     for member_id in sorted(pending):
         member = pending[member_id]
-        props = member["properties"]
         email = member_email(member)
+        created = member_created(member)
+        if created is None:
+            log.warning(f"Anmeldung {member_id}: kein Anlagedatum in Webling, übersprungen")
+            continue
         should_mail = (
             is_valid_email(email)
             and primary_ids[email] == member_id
             and email not in confirmed_emails
         )
+        state, is_new = PendingSignup.objects.get_or_create(member_id=member_id)
 
-        if not props.get(PROP_REQUESTED):
+        if is_new:
             if should_mail:
-                send_confirmation_request(member, today)
+                send_confirmation_request(member, created)
+                state.requested_at = now
+                state.save()
                 stats["requested"] += 1
             else:
                 log.warning(f"Anmeldung {member_id}: ungültige oder doppelte E-Mail, keine Mail")
                 stats["skipped"] += 1
-            # Also set for skipped entries so they expire
-            api.update_member(member_id, {PROP_REQUESTED: today.isoformat()})
             continue
 
-        age = (today - date.fromisoformat(props[PROP_REQUESTED])).days
-        if age >= settings.SIGNUP_EXPIRY_DAYS:
+        age = now - created
+        if age >= timedelta(days=settings.SIGNUP_EXPIRY_DAYS):
             api.delete_member(member_id)
-            log.info(f"Unbestätigte Anmeldung {member_id} nach {age} Tagen gelöscht")
+            state.delete()
+            log.info(f"Unbestätigte Anmeldung {member_id} nach {age.days} Tagen gelöscht")
             stats["deleted"] += 1
-        elif age >= settings.SIGNUP_REMINDER_DAYS and not props.get(PROP_REMINDED) and should_mail:
-            send_confirmation_request(
-                member, date.fromisoformat(props[PROP_REQUESTED]), reminder=True
-            )
-            api.update_member(member_id, {PROP_REMINDED: today.isoformat()})
+        elif (
+            age >= timedelta(days=settings.SIGNUP_REMINDER_DAYS)
+            and state.requested_at
+            and not state.reminded_at
+            and should_mail
+        ):
+            send_confirmation_request(member, created, reminder=True)
+            state.reminded_at = now
+            state.save()
             stats["reminded"] += 1
 
     return stats
