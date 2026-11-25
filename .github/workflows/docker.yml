@@ -1,0 +1,65 @@
+name: Docker image
+
+# Builds the image for a released version and pushes it to GHCR. Called by the release workflow
+# and by Django CI for manually pushed v* tags.
+
+on:
+  workflow_call:
+    inputs:
+      tag:
+        description: "Release tag to build (e.g. v0.11.0)"
+        required: true
+        type: string
+
+jobs:
+  docker:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.tag }}
+
+      - name: Version from tag
+        id: version
+        env:
+          TAG: ${{ inputs.tag }}
+        run: echo "version=${TAG#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract metadata
+        id: meta
+        uses: docker/metadata-action@v6
+        with:
+          # Fixed name: the repository is called owm_portal, the image owm-portal
+          images: ghcr.io/offenewerkstattmainz/owm-portal
+          tags: |
+            type=pep440,pattern={{version}},value=${{ steps.version.outputs.version }}
+            type=pep440,pattern={{major}}.{{minor}},value=${{ steps.version.outputs.version }}
+          flavor: |
+            latest=auto
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: docker/Dockerfile
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          provenance: false
+          sbom: false
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
