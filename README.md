@@ -77,6 +77,15 @@ mise install
 uv sync
 ```
 
+## Release
+
+Releases startet man im Actions-Tab über den Workflow **Release** (nur auf `main`). Er erhöht die
+Version in `pyproject.toml` und `uv.lock` (patch/minor/major oder explizite Version), committet und
+taggt `vX.Y.Z` auf `main`, legt ein GitHub-Release mit generierten Release Notes an und baut das
+Image `ghcr.io/offenewerkstattmainz/owm-portal` mit den Tags `X.Y.Z`, `X.Y` und `latest`
+(Vorabversionen wie `1.0.0b1` bekommen nur ihren eigenen Tag). Von Hand gepushte `v*`-Tags baut
+die normale CI ebenfalls.
+
 ## Upgrade von der alten „bieterrunde“-Installation
 
 Mit dem Umbau zum OWM Vereinsportal haben sich geändert:

@@ -1,0 +1,76 @@
+name: Release
+
+# Manually started from the Actions tab: bumps the version in pyproject.toml and uv.lock, commits
+# and tags it on main, creates a GitHub release and builds the Docker image.
+
+on:
+  workflow_dispatch:
+    inputs:
+      bump:
+        description: "Version bump"
+        type: choice
+        options: [patch, minor, major]
+        default: minor
+      version:
+        description: "Explicit version instead of bump (e.g. 1.0.0b1), optional"
+        type: string
+        required: false
+
+concurrency: release
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main'
+    permissions:
+      contents: write
+    outputs:
+      version: ${{ steps.bump.outputs.version }}
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: astral-sh/setup-uv@v7
+
+      - name: Bump version
+        id: bump
+        env:
+          VERSION: ${{ inputs.version }}
+          BUMP: ${{ inputs.bump }}
+        run: |
+          if [ -n "$VERSION" ]; then
+            uv version "$VERSION"
+          else
+            uv version --bump "$BUMP"
+          fi
+          echo "version=$(uv version --short)" >> "$GITHUB_OUTPUT"
+
+      - name: Commit, tag and push
+        env:
+          VERSION: ${{ steps.bump.outputs.version }}
+        run: |
+          if git rev-parse -q --verify "refs/tags/v$VERSION" >/dev/null; then
+            echo "::error::Tag v$VERSION exists already"
+            exit 1
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -am "Bump $VERSION"
+          git tag -a "v$VERSION" -m "v$VERSION"
+          git push origin HEAD:main "v$VERSION"
+
+      - name: Create GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.bump.outputs.version }}
+        run: |
+          prerelease=$(python3 -c "import re, sys; print('--prerelease' if re.search(r'[a-z]', sys.argv[1]) else '')" "$VERSION")
+          gh release create "v$VERSION" --title "v$VERSION" --generate-notes $prerelease
+
+  docker:
+    needs: release
+    permissions:
+      contents: read
+      packages: write
+    uses: ./.github/workflows/docker.yml
+    with:
+      tag: v${{ needs.release.outputs.version }}
